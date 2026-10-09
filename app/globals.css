@@ -1,0 +1,169 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800;900&family=Cairo:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #000000;
+  color: white;
+  font-family: 'Playfair Display', serif;
+}
+
+.font-serif {
+  font-family: 'Playfair Display', serif;
+}
+
+.font-cairo {
+  font-family: 'Cairo', sans-serif;
+}
+
+/* Amélioration de l'interligne pour plus de luxe */
+.leading-luxury {
+  line-height: 1.8;
+}
+
+/* Drag and drop zone */
+.drag-drop-zone {
+  border: 2px dashed #D4AF37;
+  transition: all 0.3s ease;
+}
+
+.drag-drop-zone.drag-over {
+  background-color: rgba(212, 175, 55, 0.1);
+  border-color: #D4AF37;
+  transform: scale(1.02);
+}
+
+/* Animation pulse pour le bouton de confirmation */
+@keyframes pulse-gold {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(212, 175, 55, 0);
+  }
+}
+
+.pulse-gold {
+  animation: pulse-gold 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Créneaux occupés - effet barré et grisé */
+.time-slot-booked {
+  position: relative;
+  opacity: 0.4;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  filter: grayscale(0.3);
+}
+
+.time-slot-booked::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.6), transparent);
+  transform: translateY(-50%) rotate(-15deg);
+  pointer-events: none;
+}
+
+.time-slot-booked::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.6), transparent);
+  transform: translateY(-50%) rotate(15deg);
+  pointer-events: none;
+}
+
+/* Scrollbar personnalisé */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D4AF37;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #c4a037;
+}
+
+/* Amélioration tactile mobile */
+@media (max-width: 768px) {
+  .time-slot-button {
+    min-height: 56px;
+    min-width: 80px;
+    font-size: 1rem;
+    padding: 1rem 0.75rem;
+  }
+}
+
+/* Portfolio image hover effect */
+.portfolio-image {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.portfolio-image:hover {
+  border-color: #D4AF37;
+  box-shadow: 0 0 30px rgba(212, 175, 55, 0.3);
+}
+
+/* Lightbox animation */
+.lightbox-overlay {
+  backdrop-filter: blur(20px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Smooth image loading */
+img {
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+/* Shake animation for blocked time slots */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+  20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+.shake-animation {
+  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+/* Pulse animation for booked indicator */
+@keyframes pulse-red {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+.animate-pulse-red {
+  animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

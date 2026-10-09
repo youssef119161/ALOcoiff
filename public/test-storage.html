@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Storage - RAED COIF</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #000 0%, #1a1a1a 100%);
+            color: #d4af37;
+            padding: 40px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(26, 26, 26, 0.9);
+            border: 2px solid #d4af37;
+            border-radius: 20px;
+            padding: 40px;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #d4af37;
+        }
+        .section {
+            background: rgba(212, 175, 55, 0.1);
+            border: 1px solid #d4af37;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        button {
+            background: #d4af37;
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #c4a037;
+        }
+        pre {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 0.9rem;
+        }
+        .success { color: #22c55e; }
+        .error { color: #ef4444; }
+        .warning { color: #f59e0b; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test de Persistence</h1>
+        <p>Testez la sauvegarde et le chargement des vidéos</p>
+
+        <div class="section">
+            <h2>📹 Test Vidéo Raed</h2>
+            <button onclick="testSaveVideo()">Sauvegarder Vidéo Test</button>
+            <button onclick="testLoadVideo()">Charger Vidéo</button>
+            <button onclick="testClearVideo()">Effacer Vidéo</button>
+            <pre id="videoResult">Cliquez sur un bouton pour tester...</pre>
+        </div>
+
+        <div class="section">
+            <h2>📊 État du Storage</h2>
+            <button onclick="showAllStorage()">Afficher Tout</button>
+            <button onclick="clearAllStorage()">Tout Effacer</button>
+            <pre id="storageResult">Cliquez pour voir l'état...</pre>
+        </div>
+
+        <div class="section">
+            <h2>🔧 Configuration Supabase</h2>
+            <pre id="supabaseConfig">Chargement...</pre>
+        </div>
+    </div>
+
+    <script>
+        // Test save video
+        function testSaveVideo() {
+            const testUrl = 'https://assets.mixkit.co/videos/preview/mixkit-barber-cutting-hair-4058-large.mp4';
+            localStorage.setItem('raed_video_url', testUrl);
+            
+            const result = document.getElementById('videoResult');
+            result.innerHTML = `<span class="success">✅ Vidéo sauvegardée!</span>\n\nClé: raed_video_url\nURL: ${testUrl}`;
+        }
+
+        // Test load video
+        function testLoadVideo() {
+            const url = localStorage.getItem('raed_video_url');
+            const result = document.getElementById('videoResult');
+            
+            if (url) {
+                result.innerHTML = `<span class="success">✅ Vidéo trouvée!</span>\n\nURL: ${url}`;
+            } else {
+                result.innerHTML = `<span class="error">❌ Aucune vidéo trouvée</span>\n\nLa clé 'raed_video_url' n'existe pas.`;
+            }
+        }
+
+        // Test clear video
+        function testClearVideo() {
+            localStorage.removeItem('raed_video_url');
+            const result = document.getElementById('videoResult');
+            result.innerHTML = `<span class="warning">🗑️ Vidéo effacée</span>\n\nLa clé 'raed_video_url' a été supprimée.`;
+        }
+
+        // Show all storage
+        function showAllStorage() {
+            const result = document.getElementById('storageResult');
+            const keys = Object.keys(localStorage);
+            
+            if (keys.length === 0) {
+                result.innerHTML = `<span class="warning">⚠️ localStorage vide</span>`;
+                return;
+            }
+
+            let output = `<span class="success">📦 ${keys.length} clés trouvées:</span>\n\n`;
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                const preview = value.length > 100 ? value.substring(0, 100) + '...' : value;
+                output += `${key}:\n${preview}\n\n`;
+            });
+            
+            result.innerHTML = output;
+        }
+
+        // Clear all storage
+        function clearAllStorage() {
+            if (confirm('Êtes-vous sûr de vouloir tout effacer?')) {
+                localStorage.clear();
+                const result = document.getElementById('storageResult');
+                result.innerHTML = `<span class="warning">🗑️ Tout effacé!</span>\n\nlocalStorage a été vidé complètement.`;
+            }
+        }
+
+        // Check Supabase config on load
+        window.addEventListener('load', () => {
+            const config = document.getElementById('supabaseConfig');
+            
+            // Check if we can detect Supabase from the main app
+            fetch('/api/health')
+                .then(() => {
+                    config.innerHTML = `<span class="success">✅ Application en ligne</span>\n\nPour vérifier Supabase, consultez la console de l'application principale.`;
+                })
+                .catch(() => {
+                    config.innerHTML = `<span class="warning">⚠️ Mode localStorage uniquement</span>\n\nSupabase n'est pas configuré.\nLes données seront perdues au rafraîchissement.`;
+                });
+        });
+    </script>
+</body>
+</html>

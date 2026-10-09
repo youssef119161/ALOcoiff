@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nettoyage du Storage - RAED COIF</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #000 0%, #1a1a1a 100%);
+            color: #d4af37;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(26, 26, 26, 0.9);
+            border: 2px solid #d4af37;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(212, 175, 55, 0.2);
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #d4af37;
+        }
+        p {
+            color: #999;
+            margin-bottom: 30px;
+        }
+        button {
+            background: #d4af37;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin: 10px;
+        }
+        button:hover {
+            background: #c4a037;
+            transform: scale(1.05);
+        }
+        .success {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid #22c55e;
+            color: #22c55e;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            display: none;
+        }
+        .info {
+            background: rgba(212, 175, 55, 0.1);
+            border: 1px solid #d4af37;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧹 Nettoyage du Storage</h1>
+        <p>Utilisez cet outil pour réinitialiser les données locales</p>
+        
+        <button onclick="clearBookings()">Supprimer les Réservations</button>
+        <button onclick="clearCoiffeurs()">Réinitialiser les Coiffeurs</button>
+        <button onclick="clearAll()">Tout Nettoyer</button>
+        
+        <div class="success" id="success">✓ Opération réussie!</div>
+        
+        <div class="info">
+            <strong>Note:</strong> Cette page nettoie uniquement le localStorage. 
+            Les données Supabase restent intactes.
+        </div>
+    </div>
+
+    <script>
+        function clearBookings() {
+            localStorage.removeItem('bookings');
+            showSuccess();
+            console.log('🗑️ Réservations supprimées');
+        }
+
+        function clearCoiffeurs() {
+            localStorage.removeItem('coiffeurs');
+            localStorage.removeItem('raed_video_url');
+            localStorage.removeItem('achref_video_url');
+            localStorage.removeItem('ibrahim_video_url');
+            showSuccess();
+            console.log('🗑️ Données coiffeurs réinitialisées');
+        }
+
+        function clearAll() {
+            localStorage.clear();
+            showSuccess();
+            console.log('🗑️ Tout le localStorage nettoyé');
+        }
+
+        function showSuccess() {
+            const el = document.getElementById('success');
+            el.style.display = 'block';
+            setTimeout(() => {
+                el.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
