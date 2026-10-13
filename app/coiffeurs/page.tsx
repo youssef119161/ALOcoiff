@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../../lib/supabase";
+import { isAdminEmail } from "../../lib/authRules";
 import type { User } from "@supabase/supabase-js";
 
 type Language = "fr" | "ar";
@@ -32,7 +33,6 @@ interface ActiveBooking {
   coiffeur?: CoiffeurPublic | null;
 }
 
-const ADMIN_EMAIL = "allo.coif@gmail.com";
 
 const isValidVideoUrl = (url: string): boolean => {
   if (!url || url === "undefined" || url === "null") return false;
@@ -221,7 +221,13 @@ export default function CoiffeursPage() {
     if (!supabase) { setDbError("Supabase non configuré"); return; }
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.from("profiles").select("*");
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("is_approved", true)
+        .eq("role", "coiffeur")
+        .gte("subscription_end", now);
       if (signal.aborted) return;
       if (error) {
         console.error("fetchCoiffeurs error:", error.message);
@@ -229,7 +235,7 @@ export default function CoiffeursPage() {
         return;
       }
       const list = (data || []).filter(
-        (p: CoiffeurPublic) => p.email !== ADMIN_EMAIL && p.role !== "admin"
+        (p: CoiffeurPublic) => !isAdminEmail(p.email)
       );
       setCoiffeurs(list);
       setDbError("");
@@ -610,8 +616,33 @@ export default function CoiffeursPage() {
                       </div>
                     )}
                     <div className={`absolute bottom-0 left-0 right-0 p-5 ${isRTL ? "text-right" : "text-left"}`}>
-                      <h3 className="text-xl font-bold text-white mb-0.5">{displayName}</h3>
-                      <p className="text-gold text-sm tracking-wide">{displaySpecialty}</p>
+                      <h3 className="text-xl font-bold text-white mb-1">{displayName}</h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* Badge cible clientèle */}
+                        {c.specialty && (
+                          <span className="inline-flex items-center gap-1.5 bg-black/50 backdrop-blur-sm border border-gold/30 px-2.5 py-1 rounded-full">
+                            {c.specialty === "Homme" && (
+                              <svg className="w-3.5 h-3.5 text-gold shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
+                              </svg>
+                            )}
+                            {c.specialty === "Femme" && (
+                              <svg className="w-3.5 h-3.5 text-gold shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2a5 5 0 100 10A5 5 0 0012 2zm0 12c-5.33 0-8 2.67-8 4v1h16v-1c0-1.33-2.67-4-8-4z"/>
+                              </svg>
+                            )}
+                            {c.specialty === "Homme & Femme" && (
+                              <svg className="w-3.5 h-3.5 text-gold shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M9 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v1h16v-1c0-2.7-5.3-4-8-4z" opacity="0.75"/>
+                                <path d="M16 11c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm0 2c-.8 0-1.5.1-2.2.3C15 14 16 15.1 16 16.5V18h6v-1c0-2-2.7-4-6-4z"/>
+                              </svg>
+                            )}
+                            <span className="text-gold text-xs font-medium">
+                              {lang === "ar" ? (c.specialty_ar || c.specialty) : c.specialty}
+                            </span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="p-5 flex items-center gap-4">

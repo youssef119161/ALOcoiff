@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../../lib/supabase";
+import { getAuthProfile, destinationFor, isAdmin, LOGIN_PATH } from "../../../lib/authRedirect";
+import { ChangePasswordModal } from "./ChangePasswordModal";
 
 interface CoiffeurProfile {
   id: string;
@@ -66,6 +68,7 @@ export default function AdminDashboard() {
   const [coiffeurs, setCoiffeurs]       = useState<CoiffeurProfile[]>([]);
   const [totalBookings, setTotalBookings] = useState(0);
   const [authChecked, setAuthChecked]   = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [isLoading, setIsLoading]       = useState(true);
   const [message, setMessage]           = useState("");
   const [newSignups, setNewSignups]     = useState<CoiffeurProfile[]>([]);
@@ -140,27 +143,29 @@ export default function AdminDashboard() {
 
   // ── Auth guard ─────────────────────────────────────────
   useEffect(() => {
-    if (!supabase) { window.location.replace("/auth/login"); return; }
+    if (!supabase) { window.location.replace(LOGIN_PATH); return; }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
-      if (!session) {
-        if (event === "SIGNED_OUT" || event === "INITIAL_SESSION") window.location.replace("/auth/login");
-        return;
-      }
-      // Ne vérifier le rôle que sur les events de connexion, pas les refreshs de token
-      if (event !== "SIGNED_IN" && event !== "INITIAL_SESSION" && event !== "TOKEN_REFRESHED") return;
-      if (authChecked) return; // déjà vérifié
-
-      const { data: profile } = await supabase!.from("profiles").select("role, name").eq("id", session.user.id).single();
-      if (!profile || profile.role !== "admin") {
-        window.location.replace(`/admin/${profile?.name?.toLowerCase() || session.user.id}/profile`);
+    // Vérification hors de onAuthStateChange : un `await supabase…` dans ce
+    // callback bloque le verrou d'auth (deadlock → chargement infini).
+    let active = true;
+    getAuthProfile().then((profile) => {
+      if (!active) return;
+      if (!profile || !isAdmin(profile)) {
+        window.location.replace(destinationFor(profile));
         return;
       }
       setAuthChecked(true);
       fetchData();
     });
 
-    return () => subscription.unsubscribe();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") window.location.replace(LOGIN_PATH);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, [fetchData]);
 
   // ── Realtime ───────────────────────────────────────────
@@ -395,6 +400,14 @@ export default function AdminDashboard() {
                 )}
               </AnimatePresence>
             </div>
+            {/* Mot de passe */}
+            <button onClick={() => setShowPasswordModal(true)}
+              className="flex items-center gap-2 px-4 py-3 bg-zinc-900/70 border border-zinc-700 hover:border-gold/50 hover:bg-gold/10 text-zinc-400 hover:text-gold rounded-2xl transition-all text-sm">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              Mot de passe
+            </button>
             {/* Logout */}
             <button onClick={async () => { if (supabase) await supabase.auth.signOut(); window.location.replace("/auth/login"); }}
               className="flex items-center gap-2 px-4 py-3 bg-zinc-900/70 border border-zinc-700 hover:border-red-500/50 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 rounded-2xl transition-all text-sm">
@@ -757,6 +770,8 @@ export default function AdminDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
     </div>
   );
 }

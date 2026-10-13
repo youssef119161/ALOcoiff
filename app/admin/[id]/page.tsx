@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
+import { PENDING_PATH, LOGIN_PATH, ADMIN_DASHBOARD_PATH, isAdminEmail } from "../../../lib/authRedirect";
 
 type Language = "fr" | "ar";
 type BookingStatus = "pending" | "accepted" | "rejected";
@@ -28,12 +29,15 @@ interface CoiffeurProfile {
   avatar_url: string | null;
   role: string | null;
   is_approved: boolean | null;
+  subscription_end: string | null;
+  subscription_status: string | null;
 }
 
 export default function CoiffeurDashboard() {
   const [lang, setLang] = useState<Language>("fr");
   const [profile, setProfile] = useState<CoiffeurProfile | null>(null);
   const [isApproved, setIsApproved] = useState<boolean | null>(null);
+  const [isExpired, setIsExpired] = useState(false);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [pageReady, setPageReady] = useState(false);
   const [justApproved, setJustApproved] = useState(false);
@@ -68,44 +72,57 @@ export default function CoiffeurDashboard() {
     if (data) setBookings(data as Booking[]);
   }, []);
 
-  // Auth guard via onAuthStateChange — fiable après redirect
+  // Auth guard — hors de onAuthStateChange : un `await supabase…` dans ce
+  // callback bloque le verrou d'auth (deadlock → chargement infini).
   useEffect(() => {
-    if (!supabase) { router.replace("/auth/login"); return; }
+    if (!supabase) { router.replace(LOGIN_PATH); return; }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: string, session: any) => {
-        if (!session) {
-          if (event === "SIGNED_OUT" || event === "INITIAL_SESSION") {
-            router.replace("/auth/login");
-          }
-          return;
-        }
+    let active = true;
 
-        const { data: prof, error: profError } = await supabase!
-          .from("profiles")
-          .select("id, name, name_ar, specialty, specialty_ar, avatar_url, role, is_approved")
-          .eq("id", session.user.id)
-          .single();
+    (async () => {
+      const { data: { user } } = await supabase!.auth.getUser();
+      if (!active) return;
+      if (!user) { router.replace(LOGIN_PATH); return; }
+      if (isAdminEmail(user.email)) { router.replace(ADMIN_DASHBOARD_PATH); return; }
 
-        if (profError || !prof) { router.replace("/auth/login"); return; }
-        if (prof.role === "admin") { router.replace("/admin/dashboard"); return; }
+      const { data: prof, error: profError } = await supabase!
+        .from("profiles")
+        .select("id, name, name_ar, specialty, specialty_ar, avatar_url, role, is_approved, subscription_end, subscription_status")
+        .eq("id", user.id)
+        .single();
+      if (!active) return;
 
-        const urlId = params.id as string;
-        if (prof.id !== urlId && prof.name?.toLowerCase() !== urlId) {
-          router.replace(`/admin/${prof.id}`);
-          return;
-        }
+      if (profError || !prof) { router.replace(LOGIN_PATH); return; }
+      if (!prof.is_approved) { router.replace(PENDING_PATH); return; }
 
-        profileRef.current = prof;
-        setProfile(prof);
-        setIsApproved(prof.is_approved ?? false);
-        // Charger les bookings seulement si approuvé
-        if (prof.is_approved) await fetchBookings(prof.id);
-        setPageReady(true);
+      const urlId = params.id as string;
+      if (prof.id !== urlId && prof.name?.toLowerCase() !== urlId) {
+        router.replace(`/admin/${prof.id}`);
+        return;
       }
-    );
 
-    return () => subscription.unsubscribe();
+      // Détecter expiration
+      const expired = prof.subscription_end
+        ? new Date(prof.subscription_end) < new Date()
+        : false;
+      setIsExpired(expired);
+
+      profileRef.current = prof;
+      setProfile(prof);
+      setIsApproved(prof.is_approved ?? false);
+      // Charger les bookings seulement si approuvé
+      if (prof.is_approved) await fetchBookings(prof.id);
+      if (active) setPageReady(true);
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") router.replace(LOGIN_PATH);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, [params.id, router, fetchBookings]);
 
   // Realtime — écoute tous les changements sur les bookings de ce coiffeur
@@ -153,14 +170,25 @@ export default function CoiffeurDashboard() {
             await fetchBookings(profile.id);
             setTimeout(() => setJustApproved(false), 5000);
           } else if (updated.is_approved === false) {
-            setIsApproved(false);
+            // Approbation retirée par l'admin → page d'attente
+            router.replace(PENDING_PATH);
+            return;
+          }
+          // Détecter renouvellement abonnement en temps réel
+          if (updated.subscription_end) {
+            const nowExpired = new Date(updated.subscription_end) < new Date();
+            setIsExpired(nowExpired);
+            if (!nowExpired) {
+              // L'admin a prolongé → charger les bookings si nécessaire
+              await fetchBookings(profile.id);
+            }
           }
         }
       )
       .subscribe();
 
     return () => { supabase?.removeChannel(ch); };
-  }, [profile, isApproved, fetchBookings]);
+  }, [profile, isApproved, fetchBookings, router]);
 
   const handleAccept = async (booking: Booking) => {
     if (!supabase || !profile) return;
@@ -236,51 +264,115 @@ export default function CoiffeurDashboard() {
     );
   }
 
-  // ── Compte en attente d'approbation ──
-  if (!isApproved) {
+  // ── Abonnement expiré ──
+  if (isExpired && isApproved) {
+    const endDate = profile?.subscription_end
+      ? new Date(profile.subscription_end).toLocaleDateString(
+          lang === "ar" ? "ar-TN" : "fr-FR",
+          { day: "numeric", month: "long", year: "numeric" }
+        )
+      : "—";
+    const isTrial = profile?.subscription_status === "trial";
+
     return (
-      <div className={`fixed inset-0 bg-black flex items-center justify-center p-8 ${fontClass}`}
+      <div className={`fixed inset-0 flex items-center justify-center p-8 ${fontClass}`}
         dir={isRTL ? "rtl" : "ltr"}>
+        {/* Background */}
         <div className="absolute inset-0 bg-gradient-to-br from-black via-zinc-900 to-black" />
-        <div className="absolute top-20 left-20 w-96 h-96 bg-gold/5 rounded-full blur-3xl" />
+        <div className="absolute top-20 left-20 w-96 h-96 bg-red-500/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-20 w-96 h-96 bg-gold/5 rounded-full blur-3xl" />
+
+        {/* Lang toggle */}
+        <button onClick={() => setLang(l => l === "fr" ? "ar" : "fr")}
+          className="fixed top-8 right-8 z-50 px-4 py-2 bg-gold/10 hover:bg-gold/20 text-gold border border-gold/30 rounded-lg transition-all font-medium text-sm">
+          {lang === "fr" ? "العربية" : "Français"}
+        </button>
 
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
-          className="relative z-10 max-w-md w-full text-center">
-          <div className="bg-zinc-900/80 backdrop-blur-xl border border-gold/20 rounded-3xl p-10 shadow-2xl">
-            {/* Icône animée */}
+          className="relative z-10 max-w-lg w-full">
+
+          <div className="bg-zinc-900/90 backdrop-blur-xl border border-red-500/30 rounded-3xl p-10 shadow-2xl shadow-red-500/10">
+            {/* Icône cadenas */}
             <motion.div
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              className="w-20 h-20 bg-gold/10 border-2 border-gold/30 rounded-full flex items-center justify-center mx-auto mb-6">
-              <svg className="w-10 h-10 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              initial={{ scale: 0 }} animate={{ scale: 1 }}
+              transition={{ type: "spring", stiffness: 300, delay: 0.1 }}
+              className="w-20 h-20 bg-red-500/10 border-2 border-red-500/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
             </motion.div>
 
-            <h2 className="text-gold text-xs tracking-[0.4em] uppercase mb-3">RAED COIF</h2>
-            <h1 className="text-2xl font-bold text-white mb-4">
-              {lang === "ar" ? "الحساب قيد المراجعة" : "Compte en attente de validation"}
-            </h1>
-            <p className="text-zinc-400 text-sm leading-relaxed mb-8">
+            {/* Titre */}
+            <h2 className="text-gold text-xs tracking-[0.4em] uppercase text-center mb-3">RAED COIF</h2>
+            <h1 className="text-2xl font-bold text-white text-center mb-3">
               {lang === "ar"
-                ? "شكرًا على تسجيلك. يراجع المسؤول طلبك حاليًا. ستُفتح لوحة التحكم تلقائيًا عند التفعيل."
-                : "Merci pour votre inscription. L'administrateur examine votre dossier. Votre espace s'ouvrira automatiquement dès l'activation."}
+                ? (isTrial ? "انتهت فترة التجربة المجانية" : "انتهى اشتراكك")
+                : (isTrial ? "Votre période d'essai est terminée" : "Votre abonnement a expiré")}
+            </h1>
+            <p className="text-zinc-400 text-sm text-center mb-2 leading-relaxed">
+              {lang === "ar"
+                ? `انتهت صلاحية حسابك في ${endDate}.`
+                : `Votre accès a expiré le ${endDate}.`}
+            </p>
+            <p className="text-zinc-500 text-xs text-center mb-8">
+              {lang === "ar"
+                ? "يرجى التواصل مع المسؤول لتجديد اشتراكك."
+                : "Contactez l'administrateur pour renouveler votre abonnement."}
             </p>
 
-            {/* Indicateur de connexion realtime */}
-            <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 mb-6">
-              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              {lang === "ar" ? "في انتظار التفعيل..." : "En attente d'activation..."}
+            {/* Infos renouvellement */}
+            <div className="bg-zinc-800/50 rounded-2xl p-5 mb-6 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gold/10 rounded-lg flex items-center justify-center shrink-0">
+                  <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-zinc-400 text-xs">{lang === "ar" ? "تاريخ الانتهاء" : "Date d'expiration"}</p>
+                  <p className="text-white text-sm font-semibold">{endDate}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gold/10 rounded-lg flex items-center justify-center shrink-0">
+                  <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-zinc-400 text-xs">{lang === "ar" ? "الخطوة التالية" : "Prochaine étape"}</p>
+                  <p className="text-white text-sm font-semibold">
+                    {lang === "ar" ? "تواصل مع الإدارة" : "Contacter l'administrateur"}
+                  </p>
+                </div>
+              </div>
             </div>
 
+            {/* Indicateur realtime */}
+            <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 mb-6">
+              <motion.span
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="w-2 h-2 bg-yellow-500 rounded-full"
+              />
+              {lang === "ar" ? "في انتظار التجديد من الإدارة..." : "En attente de renouvellement par l'admin..."}
+            </div>
+
+            {/* Actions */}
             <div className="flex gap-3">
-              <button onClick={() => setLang(l => l === "fr" ? "ar" : "fr")}
-                className="flex-1 py-2.5 bg-gold/10 hover:bg-gold/20 text-gold border border-gold/30 rounded-xl text-sm transition-all">
-                {lang === "fr" ? "العربية" : "Français"}
-              </button>
-              <button onClick={handleLogout}
-                className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-xl text-sm transition-all">
+              <a href={`/admin/${profile?.id}/profile`}
+                className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold rounded-xl transition-all text-sm text-center">
+                {lang === "ar" ? "ملفي الشخصي" : "Mon profil"}
+              </a>
+              <button
+                onClick={async () => {
+                  if (supabase) await supabase.auth.signOut();
+                  router.replace("/auth/login");
+                }}
+                className="flex-1 py-3 bg-gold hover:bg-gold/90 text-black font-bold rounded-xl transition-all text-sm">
                 {lang === "ar" ? "تسجيل الخروج" : "Déconnexion"}
               </button>
             </div>

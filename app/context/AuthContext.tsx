@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
 import { coiffeurDB, portfolioDB, isSupabaseConfigured, supabase } from "../../lib/supabase";
+import { destinationFor, isAdminEmail, ADMIN_DASHBOARD_PATH } from "../../lib/authRedirect";
 
 // Centralized storage utility
 const storage = {
@@ -198,7 +199,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log('🔧 Configuration Supabase:', supabaseConfigured ? '✅ Connecté' : '⚠️ Non configuré');
         
         const savedUser = storage.load("currentUser");
-        if (savedUser) {
+        if (supabase) {
+          // La session Supabase fait foi : "currentUser" n'est qu'un cache local
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user) {
+            storage.remove("currentUser");
+          } else if (savedUser?.id === session.user.id) {
+            setCurrentUser(savedUser);
+          } else {
+            const loaded = await loadProfileUser(session.user.id);
+            if (loaded) {
+              setCurrentUser(loaded.user);
+              storage.save("currentUser", loaded.user);
+            }
+          }
+        } else if (savedUser) {
           setCurrentUser(savedUser);
         }
 
@@ -231,6 +246,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
   }, []);
 
+  // Déconnexion depuis n'importe où (autre onglet, token révoqué…) → vider le cache
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setCurrentUser(null);
+        storage.remove("currentUser");
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   // Save coiffeurs to localStorage whenever they change
   useEffect(() => {
     if (typeof window !== 'undefined' && isHydrated) {
@@ -250,6 +277,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return false;
   };
 
+  // Construit le currentUser à partir de la table profiles
+  const loadProfileUser = async (userId: string) => {
+    if (!supabase) return null;
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('id, name, name_ar, email, specialty, specialty_ar, video_url, avatar_url, role, is_approved, subscription_status, subscription_end')
+      .eq('id', userId)
+      .single();
+
+    if (error || !profile) {
+      console.warn('⚠️ Profil non trouvé dans Supabase pour:', userId, error?.message);
+      return null;
+    }
+
+    const user: Coiffeur = {
+      id: profile.id,
+      name: profile.name,
+      nameAr: profile.name_ar,
+      email: profile.email,
+      password: '',
+      specialty: profile.specialty,
+      specialtyAr: profile.specialty_ar,
+      video: profile.video_url || '',
+      avatar: profile.avatar_url || '',
+      portfolio: await portfolioDB.getByCoiffeur(profile.id),
+    };
+    return { user, profile };
+  };
+
   const signIn = async (email: string, password: string): Promise<{ success: boolean; error?: string; userId?: string }> => {
     try {
       // Si Supabase n'est pas configuré, utiliser l'authentification locale
@@ -258,7 +314,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const success = login(email, password);
         if (success) {
           const userId = email.split("@")[0];
-          // Redirection forcée pour briser la boucle
           if (typeof window !== 'undefined') {
             window.location.href = `/admin/${userId}/profile`;
           }
@@ -267,85 +322,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: 'Email ou mot de passe incorrect' };
       }
 
-      // Authentification avec Supabase
+      // Authentification avec Supabase — la session est persistée (localStorage)
+      // et rafraîchie automatiquement : pas besoin de se reconnecter au prochain lancement.
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim().toLowerCase(),
         password,
       });
 
       if (error) {
         console.warn('⚠️ Erreur d\'authentification Supabase:', error.message);
-        // Fallback vers authentification locale
-        const localSuccess = login(email, password);
-        if (localSuccess) {
-          const userId = email.split("@")[0];
-          // Redirection forcée pour briser la boucle
-          if (typeof window !== 'undefined') {
-            window.location.href = `/admin/${userId}/profile`;
-          }
-          return { success: true, userId };
-        }
-        return { success: false, error: error.message };
+        return { success: false, error: 'Email ou mot de passe incorrect' };
       }
 
-      if (data.user && data.session) {
-        // Lire le profil directement depuis Supabase pour avoir le rôle exact
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('id, name, name_ar, email, specialty, specialty_ar, video_url, role')
-          .eq('id', data.user.id)
-          .single();
-
-        console.log('📋 Profil récupéré:', profile, '| Erreur:', profileError);
-
-        if (profile) {
-          const user: Coiffeur = {
-            id: profile.id,
-            name: profile.name,
-            nameAr: profile.name_ar,
-            email: profile.email,
-            password: '',
-            specialty: profile.specialty,
-            specialtyAr: profile.specialty_ar,
-            video: profile.video_url || '',
-            portfolio: await portfolioDB.getByCoiffeur(profile.id),
-          };
-
-          setCurrentUser(user);
-          storage.save("currentUser", user);
-
-          console.log('✅ Authentification réussie pour:', user.name, '| rôle:', profile.role);
-
-          // Redirection stricte selon le rôle — aucun email hardcodé
-          if (profile.role === 'admin') {
-            console.log('🔑 Rôle admin détecté → redirection /admin/dashboard');
-            window.location.replace('/admin/dashboard');
-          } else {
-            window.location.replace(`/admin/${profile.name.toLowerCase()}/profile`);
-          }
-
-          return { success: true, userId: profile.name?.toLowerCase() || profile.id };
-        } else {
-          // Profil introuvable dans profiles → déconnecter proprement
-          console.warn('⚠️ Profil non trouvé dans Supabase pour:', data.user.id);
-          await supabase.auth.signOut();
-          return { success: false, error: 'Profil utilisateur non trouvé. Contactez l\'administrateur.' };
-        }
+      if (!data.user || !data.session) {
+        return { success: false, error: 'Erreur d\'authentification' };
       }
 
-      return { success: false, error: 'Erreur d\'authentification' };
+      // L'administrateur (identifié par l'e-mail Auth) n'a pas besoin de ligne profiles
+      if (isAdminEmail(data.user.email)) {
+        window.location.replace(ADMIN_DASHBOARD_PATH);
+        return { success: true, userId: data.user.id };
+      }
+
+      const loaded = await loadProfileUser(data.user.id);
+      if (!loaded) {
+        // Profil introuvable dans profiles → déconnecter proprement
+        await supabase.auth.signOut();
+        return { success: false, error: 'Profil utilisateur non trouvé. Contactez l\'administrateur.' };
+      }
+
+      setCurrentUser(loaded.user);
+      storage.save("currentUser", loaded.user);
+
+      // non approuvé ou abonnement échu → /auth/pending, sinon → /admin/{id}
+      window.location.replace(destinationFor({ ...loaded.profile, email: data.user.email ?? null }));
+      return { success: true, userId: loaded.profile.id };
     } catch (error) {
       console.warn('⚠️ Exception lors de l\'authentification:', error);
-      // Fallback vers authentification locale en cas d'exception
-      const localSuccess = login(email, password);
-      if (localSuccess) {
-        const userId = email.split("@")[0];
-        // Redirection forcée pour briser la boucle
-        if (typeof window !== 'undefined') {
-          window.location.href = `/admin/${userId}/profile`;
-        }
-        return { success: true, userId };
-      }
       return { success: false, error: 'Erreur de connexion' };
     }
   };

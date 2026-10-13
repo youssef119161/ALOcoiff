@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { supabase } from "../lib/supabase";
+import { getAuthProfile, destinationFor } from "../lib/authRedirect";
 
 type Language = "fr" | "ar";
 
@@ -40,21 +40,9 @@ export default function LandingPage() {
 
   // Redirection auto si déjà connecté en tant que coiffeur ou admin
   useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session?.user) return;
-      const { data: profile } = await supabase!
-        .from("profiles")
-        .select("id, role")
-        .eq("id", session.user.id)
-        .single();
-      if (!profile) return;
-      if (profile.role === "admin") {
-        window.location.replace("/admin/dashboard");
-      } else {
-        // Coiffeur → son espace
-        window.location.replace(`/admin/${profile.id}`);
-      }
+    // Les clients (sans ligne dans profiles) restent sur l'accueil
+    getAuthProfile().then((profile) => {
+      if (profile) window.location.replace(destinationFor(profile));
     });
   }, []);
 

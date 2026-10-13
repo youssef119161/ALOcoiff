@@ -1,18 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-// Créer le client Supabase avec persistance de session explicite
+// Session stockée dans des cookies (et non le localStorage) pour que le
+// middleware serveur puisse la lire. Persistante entre deux lancements du
+// navigateur et rafraîchie automatiquement.
 export const supabase = supabaseUrl && supabaseAnonKey && supabaseUrl !== 'your_supabase_url_here'
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        detectSessionInUrl: true,
-        autoRefreshToken: true,
-        storageKey: 'raedcoif-auth',
-      },
-    })
+  ? createBrowserClient(supabaseUrl, supabaseAnonKey)
   : null;
 
 // Check if Supabase is configured

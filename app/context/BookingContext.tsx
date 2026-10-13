@@ -109,6 +109,8 @@ export function BookingProvider({ children }: { children: ReactNode }) {
           booking_date: booking.date,
           booking_time: booking.time,
           status: "pending",
+          service: booking.service || "",
+          service_ar: booking.serviceAr || "",
         };
         if (booking.comment) bookingData.comment = booking.comment;
         if (booking.clientId) bookingData.client_id = booking.clientId;
